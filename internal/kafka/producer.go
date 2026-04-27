@@ -2,13 +2,16 @@ package kafka
 
 import (
 	"context"
+	"crypto/tls"
 	"log/slog"
 	"sync"
 	"time"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/harsh-aap/theAnalyticsProject/ingestion/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sasl/aws"
 )
 
 // Producer wraps franz-go with fully async produce.
@@ -29,20 +32,48 @@ type Producer struct {
 	wg       sync.WaitGroup
 }
 
-func New(brokers []string, topic, dlqTopic string, maxInFlight int) (*Producer, error) {
-	client, err := kgo.NewClient(
+func New(brokers []string, topic, dlqTopic, authType string, maxInFlight int) (*Producer, error) {
+	opts := []kgo.Opt{
 		kgo.SeedBrokers(brokers...),
 		kgo.DefaultProduceTopic(topic),
 		kgo.RequiredAcks(kgo.AllISRAcks()),
 		kgo.RecordPartitioner(kgo.StickyKeyPartitioner(nil)),
 		kgo.ProducerBatchCompression(kgo.SnappyCompression()),
-		kgo.ProducerBatchMaxBytes(1<<20),
+		kgo.ProducerBatchMaxBytes(1 << 20),
 		// At 10k req/s, a 1ms linger window batches ~10 records per Kafka request.
 		// This cuts broker round-trips by 10x with zero impact on HTTP latency
 		// (produce is async — the HTTP response is already sent before this fires).
 		kgo.ProducerLinger(time.Millisecond),
 		kgo.RecordRetries(3),
-	)
+	}
+
+	if authType == "iam" {
+		// MSK IAM auth — uses the EC2 instance's IAM role automatically.
+		// TLS is required for IAM; MSK listens on port 9098 for this.
+		opts = append(opts,
+			kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}),
+			kgo.SASL(aws.ManagedStreamingIAM(func(ctx context.Context) (aws.Auth, error) {
+				cfg, err := awsconfig.LoadDefaultConfig(ctx)
+				if err != nil {
+					return aws.Auth{}, err
+				}
+				creds, err := cfg.Credentials.Retrieve(ctx)
+				if err != nil {
+					return aws.Auth{}, err
+				}
+				return aws.Auth{
+					AccessKey:    creds.AccessKeyID,
+					SecretKey:    creds.SecretAccessKey,
+					SessionToken: creds.SessionToken,
+				}, nil
+			})),
+		)
+		slog.Info("kafka auth: IAM (MSK)")
+	} else {
+		slog.Info("kafka auth: none (plaintext)")
+	}
+
+	client, err := kgo.NewClient(opts...)
 	if err != nil {
 		return nil, err
 	}

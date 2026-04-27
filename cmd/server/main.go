@@ -29,7 +29,7 @@ func main() {
 	}
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
 
-	producer, err := kafka.New(cfg.KafkaBrokers, cfg.KafkaTopic, cfg.KafkaDLQTopic, cfg.MaxInFlight)
+	producer, err := kafka.New(cfg.KafkaBrokers, cfg.KafkaTopic, cfg.KafkaDLQTopic, cfg.KafkaAuthType, cfg.MaxInFlight)
 	if err != nil {
 		slog.Error("failed to create kafka producer", "error", err)
 		os.Exit(1)

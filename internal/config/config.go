@@ -12,6 +12,7 @@ type Config struct {
 	KafkaBrokers    []string
 	KafkaTopic      string
 	KafkaDLQTopic   string        // dead-letter topic for events that fail after all retries
+	KafkaAuthType   string        // "iam" for MSK, "none" for local (default: none)
 	MaxInFlight     int           // max concurrent in-flight Kafka records; acts as backpressure limit
 	ShutdownTimeout time.Duration
 	APIKeys         []string      // valid bearer tokens; empty = auth disabled (local dev)
@@ -32,7 +33,8 @@ func Load() *Config {
 		RateLimitRPS:    getEnvInt("RATE_LIMIT_RPS", 10000),
 		RateLimitBurst:  getEnvInt("RATE_LIMIT_BURST", 1000),
 	}
-	cfg.KafkaDLQTopic = getEnv("KAFKA_DLQ_TOPIC", cfg.KafkaTopic+".dlq")
+	cfg.KafkaDLQTopic  = getEnv("KAFKA_DLQ_TOPIC",   cfg.KafkaTopic+".dlq")
+	cfg.KafkaAuthType  = getEnv("KAFKA_AUTH_TYPE",   "none")
 	if raw := getEnv("API_KEYS", ""); raw != "" {
 		cfg.APIKeys = strings.Split(raw, ",")
 	}
