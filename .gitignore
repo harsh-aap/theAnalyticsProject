@@ -1,0 +1,14 @@
+# Binary output
+bin/
+ingestion-server
+
+# Environment — never commit real secrets
+.env
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp
