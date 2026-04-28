@@ -123,6 +123,7 @@ func (p *Producer) Enqueue(key, value []byte) bool {
 			p.sendToDLQ(r)
 			return
 		}
+		slog.Info("kafka produce ok", "topic", r.Topic, "partition", r.Partition, "offset", r.Offset)
 		metrics.EventsProduced.Inc()
 	})
 	return true
