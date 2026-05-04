@@ -33,7 +33,14 @@ func (s *IngestService) Ingest(e *domain.Event) error {
 		return err
 	}
 
-	if !s.pub.Enqueue([]byte(e.UserID), payload) {
+	// Partition by user_id when available so post-login events for the same
+	// user are co-partitioned regardless of device. Fall back to anonymous_id
+	// so pre-auth events from the same device stay ordered.
+	key := e.AnonymousID
+	if e.UserID != "" {
+		key = e.UserID
+	}
+	if !s.pub.Enqueue([]byte(key), payload) {
 		return ErrBufferFull
 	}
 	return nil

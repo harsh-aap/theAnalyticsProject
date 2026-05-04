@@ -12,41 +12,58 @@ func TestValidate(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:  "valid event",
-			event: Event{EventType: "page_view", UserID: "u1"},
+			name:  "valid anonymous event",
+			event: Event{EventType: "page_view", AnonymousID: "anon-1"},
+		},
+		{
+			name:  "valid authenticated event",
+			event: Event{EventType: "purchase", AnonymousID: "anon-1", UserID: "user-1", Price: 9.99},
 		},
 		{
 			name:    "missing event_type",
-			event:   Event{UserID: "u1"},
+			event:   Event{AnonymousID: "anon-1"},
 			wantErr: "event_type is required",
 		},
 		{
-			name:    "unknown event_type",
-			event:   Event{EventType: "checkout", UserID: "u1"},
-			wantErr: "unknown event_type",
+			name:    "event_type with spaces rejected",
+			event:   Event{EventType: "page view", AnonymousID: "anon-1"},
+			wantErr: "event_type must be lowercase",
 		},
 		{
-			name:    "missing user_id",
+			name:    "event_type with capitals rejected",
+			event:   Event{EventType: "PageView", AnonymousID: "anon-1"},
+			wantErr: "event_type must be lowercase",
+		},
+		{
+			name:  "new event_type not in schema passes through",
+			event: Event{EventType: "video_played", AnonymousID: "anon-1"},
+		},
+		{
+			name:    "missing anonymous_id",
 			event:   Event{EventType: "click"},
-			wantErr: "user_id is required",
+			wantErr: "anonymous_id is required",
 		},
 		{
 			name:    "negative price",
-			event:   Event{EventType: "purchase", UserID: "u1", Price: -1},
+			event:   Event{EventType: "purchase", AnonymousID: "anon-1", Price: -1},
 			wantErr: "price must be non-negative",
 		},
 		{
 			name:  "zero price is fine",
-			event: Event{EventType: "click", UserID: "u1", Price: 0},
+			event: Event{EventType: "click", AnonymousID: "anon-1", Price: 0},
 		},
 		{
 			name:  "valid identify event",
-			event: Event{EventType: "identify", UserID: "real-user-1", AnonymousID: "anon-uuid-1"},
+			event: Event{EventType: "identify", AnonymousID: "anon-uuid-1", UserID: "real-user-1"},
 		},
 		{
-			name:    "identify missing anonymous_id",
-			event:   Event{EventType: "identify", UserID: "real-user-1"},
-			wantErr: "anonymous_id is required for identify events",
+			name:    "custom event missing custom_event_name",
+			event:   Event{EventType: "custom", AnonymousID: "anon-1"},
+			wantErr: "custom_event_name is required for custom events",
+		},
+		{
+			name:  "valid custom event",
+			event: Event{EventType: "custom", AnonymousID: "anon-1", CustomEventName: "video_played"},
 		},
 	}
 
@@ -70,24 +87,24 @@ func TestValidate(t *testing.T) {
 }
 
 func TestNormalise(t *testing.T) {
-	t.Run("sets timestamp when zero", func(t *testing.T) {
-		e := Event{EventType: "click", UserID: "u1"}
+	t.Run("sets event_ts_ms when zero", func(t *testing.T) {
+		e := Event{EventType: "click", AnonymousID: "anon-1"}
 		e.Normalise()
-		if e.Timestamp == 0 {
-			t.Fatal("expected Timestamp to be set")
+		if e.EventTsMs == 0 {
+			t.Fatal("expected EventTsMs to be set")
 		}
 	})
 
-	t.Run("preserves existing timestamp", func(t *testing.T) {
-		e := Event{EventType: "click", UserID: "u1", Timestamp: 999}
+	t.Run("preserves existing event_ts_ms", func(t *testing.T) {
+		e := Event{EventType: "click", AnonymousID: "anon-1", EventTsMs: 999}
 		e.Normalise()
-		if e.Timestamp != 999 {
-			t.Fatalf("expected Timestamp=999, got %d", e.Timestamp)
+		if e.EventTsMs != 999 {
+			t.Fatalf("expected EventTsMs=999, got %d", e.EventTsMs)
 		}
 	})
 
 	t.Run("generates event_id", func(t *testing.T) {
-		e := Event{EventType: "click", UserID: "u1"}
+		e := Event{EventType: "click", AnonymousID: "anon-1"}
 		e.Normalise()
 		if e.EventID == "" {
 			t.Fatal("expected EventID to be set")
@@ -95,7 +112,7 @@ func TestNormalise(t *testing.T) {
 	})
 
 	t.Run("preserves caller-supplied event_id", func(t *testing.T) {
-		e := Event{EventType: "click", UserID: "u1", EventID: "my-id"}
+		e := Event{EventType: "click", AnonymousID: "anon-1", EventID: "my-id"}
 		e.Normalise()
 		if e.EventID != "my-id" {
 			t.Fatalf("expected EventID=my-id, got %q", e.EventID)
@@ -103,18 +120,18 @@ func TestNormalise(t *testing.T) {
 	})
 
 	t.Run("two events same ms get different ids", func(t *testing.T) {
-		e1 := Event{EventType: "click", UserID: "u1", Timestamp: 1000}
-		e2 := Event{EventType: "click", UserID: "u2", Timestamp: 1000}
+		e1 := Event{EventType: "click", AnonymousID: "anon-1", EventTsMs: 1000}
+		e2 := Event{EventType: "click", AnonymousID: "anon-2", EventTsMs: 1000}
 		e1.Normalise()
 		e2.Normalise()
 		if e1.EventID == e2.EventID {
-			t.Fatal("different users should produce different event IDs")
+			t.Fatal("different anonymous IDs should produce different event IDs")
 		}
 	})
 }
 
 func TestJSON(t *testing.T) {
-	e := Event{EventType: "purchase", UserID: "u1", Price: 9.99}
+	e := Event{EventType: "purchase", AnonymousID: "anon-1", UserID: "u1", Price: 9.99}
 	e.Normalise()
 
 	b, err := e.JSON()
@@ -126,5 +143,11 @@ func TestJSON(t *testing.T) {
 	}
 	if !strings.Contains(string(b), `"purchase"`) {
 		t.Fatalf("JSON missing event_type: %s", b)
+	}
+	if !strings.Contains(string(b), `"event_ts_ms"`) {
+		t.Fatalf("JSON missing event_ts_ms: %s", b)
+	}
+	if !strings.Contains(string(b), `"anonymous_id"`) {
+		t.Fatalf("JSON missing anonymous_id: %s", b)
 	}
 }

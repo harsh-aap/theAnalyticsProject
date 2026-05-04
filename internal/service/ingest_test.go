@@ -8,8 +8,8 @@ import (
 
 // mockPublisher implements Publisher for tests.
 type mockPublisher struct {
-	full    bool
-	queued  int
+	full   bool
+	queued int
 }
 
 func (m *mockPublisher) Enqueue(_, _ []byte) bool {
@@ -21,11 +21,11 @@ func (m *mockPublisher) Enqueue(_, _ []byte) bool {
 }
 
 func TestIngest(t *testing.T) {
-	t.Run("valid event is accepted", func(t *testing.T) {
+	t.Run("valid anonymous event is accepted", func(t *testing.T) {
 		pub := &mockPublisher{}
 		svc := NewIngestService(pub)
 
-		e := &domain.Event{EventType: "click", UserID: "u1"}
+		e := &domain.Event{EventType: "click", AnonymousID: "anon-1"}
 		if err := svc.Ingest(e); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -37,11 +37,24 @@ func TestIngest(t *testing.T) {
 		}
 	})
 
+	t.Run("valid authenticated event is accepted", func(t *testing.T) {
+		pub := &mockPublisher{}
+		svc := NewIngestService(pub)
+
+		e := &domain.Event{EventType: "purchase", AnonymousID: "anon-1", UserID: "user-1", Price: 9.99}
+		if err := svc.Ingest(e); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if pub.queued != 1 {
+			t.Fatalf("expected 1 enqueued record, got %d", pub.queued)
+		}
+	})
+
 	t.Run("invalid event returns validation error", func(t *testing.T) {
 		pub := &mockPublisher{}
 		svc := NewIngestService(pub)
 
-		e := &domain.Event{EventType: "click"} // missing user_id
+		e := &domain.Event{EventType: "click"} // missing anonymous_id
 		if err := svc.Ingest(e); err == nil {
 			t.Fatal("expected validation error")
 		}
@@ -54,7 +67,7 @@ func TestIngest(t *testing.T) {
 		pub := &mockPublisher{full: true}
 		svc := NewIngestService(pub)
 
-		e := &domain.Event{EventType: "click", UserID: "u1"}
+		e := &domain.Event{EventType: "click", AnonymousID: "anon-1"}
 		err := svc.Ingest(e)
 		if err != ErrBufferFull {
 			t.Fatalf("expected ErrBufferFull, got %v", err)
@@ -68,8 +81,8 @@ func TestIngestBatch(t *testing.T) {
 		svc := NewIngestService(pub)
 
 		events := []domain.Event{
-			{EventType: "click", UserID: "u1"},
-			{EventType: "page_view", UserID: "u2"},
+			{EventType: "click", AnonymousID: "anon-1"},
+			{EventType: "page_view", AnonymousID: "anon-2", UserID: "user-2"},
 		}
 		result := svc.IngestBatch(events)
 		if result.Accepted != 2 || result.Dropped != 0 {
@@ -82,9 +95,9 @@ func TestIngestBatch(t *testing.T) {
 		svc := NewIngestService(pub)
 
 		events := []domain.Event{
-			{EventType: "click", UserID: "u1"},   // valid
-			{EventType: "click"},                  // invalid: missing user_id
-			{EventType: "purchase", UserID: "u3"}, // valid
+			{EventType: "click", AnonymousID: "anon-1"},            // valid
+			{EventType: "click"},                                    // invalid: missing anonymous_id
+			{EventType: "purchase", AnonymousID: "anon-3", UserID: "user-3"}, // valid
 		}
 		result := svc.IngestBatch(events)
 		if result.Accepted != 2 || result.Dropped != 1 {
@@ -97,8 +110,8 @@ func TestIngestBatch(t *testing.T) {
 		svc := NewIngestService(pub)
 
 		events := []domain.Event{
-			{EventType: "click", UserID: "u1"},
-			{EventType: "click", UserID: "u2"},
+			{EventType: "click", AnonymousID: "anon-1"},
+			{EventType: "click", AnonymousID: "anon-2"},
 		}
 		result := svc.IngestBatch(events)
 		if result.Accepted != 0 || result.Dropped != 2 {
